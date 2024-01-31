@@ -79,8 +79,8 @@ for train_index,test_index in kf.split(all_x):
     test_x=all_x[test_index]
     test_y=[all_y[i] for i in test_index]
     i+=1
-    np.savez(f'../../data/new/npz/train/ESM_8M_train_fold{i}.npz',x=train_x,y=train_y,allow_pickle=True)
-    np.savez(f'../../data/new/npz/test/ESM_8M_test_fold{i}.npz',x=test_x,y=test_y,allow_pickle=True)
+    np.savez(f'../../data/new/npz/train/Bert_train_fold{i}.npz',x=train_x,y=train_y,allow_pickle=True)
+    np.savez(f'../../data/new/npz/test/Bert_test_fold{i}.npz',x=test_x,y=test_y,allow_pickle=True)
     break
 
 
