@@ -12,6 +12,283 @@ GH29BERT model is also accessible through a friendly user-interface: https://hug
 
 
 
+## Process
+
+## Load data
+
+## Load Xx (2,796 *20%) labelled GH29 sequences
+
+```python
+import torch
+import numpy as np
+from Bio import SeqIO
+from tape import TAPETokenizer
+import dataset
+from torch.utils.data import DataLoader
+from matplotlib import pyplot as plt
+from transformers import T5Tokenizer, T5EncoderModel
+def read_fasta(file_path):
+    sequences=[]
+
+    for record in SeqIO.parse(file_path,"fasta"):
+        sequences.append(str(record.seq))
+    return sequences
+
+sequences_test=read_fasta(f'test.fasta')
+```
+
+## Load 14 labelled GH29 sequences
+
+```python
+sequences_14=read_fasta(f'15_seq_for-test.fasta')
+```
+
+# Load model
+
+## Load GH29BERT model for reproducing the prediction results
+
+```python
+GH29BERT=torch.load('transformer1500_95p_500.pt')
+GH29BERT=GH29BERT.module
+GH29BERT=GH29BERT.to('cuda:0')
+downstream_GH29BERT=torch.load('down_model_500_kfold1.pt').to('cuda:0')
+```
+
+## Load ProtT5-XL model for reproducing the prediction results
+
+```python
+ProtT5_XL=T5EncoderModel.from_pretrained("Rostlab/prot_t5_xl_half_uniref50-enc",cache_dir='./').to('cuda:0')
+downstream_ProtT5_XL=torch.load('down_model_500_kfold1.pt').to('cuda:0')
+```
+
+# Prediction performance on Xx (2,796 *20%) labelled GH29 sequences
+
+## Prediction performance on GH29BERT
+
+```python
+target = np.zeros(45)
+tokenizer = TAPETokenizer(vocab='iupac')
+test_x=[]
+test_y=[]
+
+for sequence in tqdm(sequences_test):
+    token_ids = torch.tensor([tokenizer.encode(sequence)]).to('cuda:0')
+    output = GH29BERT(token_ids)
+    sequence_output = output[1].to('cpu')
+    sequence_output = sequence_output.squeeze()
+    sequence_output = sequence_output.detach().numpy()
+
+    test_x.append(sequence_output)
+    test_y.append(target)
+
+test_x=np.array(test_x,dtype=object)
+np.savez(f'test.npz',x=test_x,y=test_y,allow_pickle=True)
+
+
+test_data=dataset.EmbedData(f'test.npz')
+test_data=DataLoader(test_data,batch_size=1,shuffle=False)
+
+
+with torch.no_grad():
+    for sequence in tqdm(test_data):
+        input, target = sequence
+        input=input.to('cuda:0')
+        target=target.to('cuda:0')
+        output = downstream_GH29BERT(input)
+        output = torch.softmax(output, dim=1)
+        entropy = -torch.sum(output * torch.log2(output))
+        print(f'cluster:{torch.argmax(output, dim=1).item() + 1},entropy:{entropy}')
+```
+
+## Prediction performance on ProtT5-XL
+
+```python
+target = np.zeros(45)
+tokenizer = T5Tokenizer.from_pretrained('Rostlab/prot_t5_xl_half_uniref50-enc', do_lower_case=False,cache_dir='./')
+test_x=[]
+test_y=[]
+
+for sequence in tqdm(sequences_test):
+    sequence_examples=[sequence]
+    sequence_examples = [" ".join(list(re.sub(r"[UZOB]", "X", sequence))) for sequence in sequence_examples]
+    # tokenize sequences and pad up to the longest sequence in the batch
+    ids = tokenizer(sequence_examples, add_special_tokens=True, padding="longest")
+
+    input_ids = torch.tensor(ids['input_ids']).to('cuda:0')
+    attention_mask = torch.tensor(ids['attention_mask']).to('cuda:0')
+
+    # generate embeddings
+    embedding_repr = ProtT5_XL(input_ids=input_ids, attention_mask=attention_mask)
+
+    last_hidden_states = embedding_repr.last_hidden_state.to('cpu')
+
+    sequence_output=last_hidden_states.squeeze()
+    sequence_output=sequence_output.detach().numpy()
+    torch.cuda.empty_cache()
+    test_x.append(sequence_output)
+    test_y.append(target)
+
+test_x=np.array(test_x,dtype=object)
+np.savez(f'test.npz',x=test_x,y=test_y,allow_pickle=True)
+
+
+test_data=dataset.EmbedData(f'test.npz')
+test_data=DataLoader(test_data,batch_size=1,shuffle=False)
+
+
+with torch.no_grad():
+    for sequence in tqdm(test_data):
+        input, target = sequence
+        input=input.to('cuda:0')
+        target=target.to('cuda:0')
+        output = downstream_ProtT5_XL(input)
+        output = torch.softmax(output, dim=1)
+        entropy = -torch.sum(output * torch.log2(output))
+        print(f'cluster:{torch.argmax(output, dim=1).item() + 1},entropy:{entropy}')
+```
+
+# Prediction results for 14 known-label (characterized) sequences
+
+## Prediction results of GH29BERT
+
+```python
+target = np.zeros(45)
+tokenizer = TAPETokenizer(vocab='iupac')
+test_x=[]
+test_y=[]
+
+for sequence in tqdm(sequences_14):
+    token_ids = torch.tensor([tokenizer.encode(sequence)]).to('cuda:0')
+    output = GH29BERT(token_ids)
+    sequence_output = output[1].to('cpu')
+    sequence_output = sequence_output.squeeze()
+    sequence_output = sequence_output.detach().numpy()
+
+    test_x.append(sequence_output)
+    test_y.append(target)
+
+test_x=np.array(test_x,dtype=object)
+np.savez(f'test.npz',x=test_x,y=test_y,allow_pickle=True)
+
+
+test_data=dataset.EmbedData(f'test.npz')
+test_data=DataLoader(test_data,batch_size=1,shuffle=False)
+
+
+with torch.no_grad():
+    for sequence in tqdm(test_data):
+        input, target = sequence
+        input=input.to('cuda:0')
+        target=target.to('cuda:0')
+        output = downstream_GH29BERT(input)
+        output = torch.softmax(output, dim=1)
+        entropy = -torch.sum(output * torch.log2(output))
+        print(f'cluster:{torch.argmax(output, dim=1).item() + 1},entropy:{entropy}')
+```
+
+## Prediction results of ProtT5-XL
+
+```python
+target = np.zeros(45)
+tokenizer = T5Tokenizer.from_pretrained('Rostlab/prot_t5_xl_half_uniref50-enc', do_lower_case=False,cache_dir='./')
+test_x=[]
+test_y=[]
+
+for sequence in tqdm(sequences_14):
+    sequence_examples=[sequence]
+    sequence_examples = [" ".join(list(re.sub(r"[UZOB]", "X", sequence))) for sequence in sequence_examples]
+    # tokenize sequences and pad up to the longest sequence in the batch
+    ids = tokenizer(sequence_examples, add_special_tokens=True, padding="longest")
+
+    input_ids = torch.tensor(ids['input_ids']).to('cuda:0')
+    attention_mask = torch.tensor(ids['attention_mask']).to('cuda:0')
+
+    # generate embeddings
+    embedding_repr = ProtT5_XL(input_ids=input_ids, attention_mask=attention_mask)
+
+    last_hidden_states = embedding_repr.last_hidden_state.to('cpu')
+
+    sequence_output=last_hidden_states.squeeze()
+    sequence_output=sequence_output.detach().numpy()
+    torch.cuda.empty_cache()
+    test_x.append(sequence_output)
+    test_y.append(target)
+
+test_x=np.array(test_x,dtype=object)
+np.savez(f'test.npz',x=test_x,y=test_y,allow_pickle=True)
+
+
+test_data=dataset.EmbedData(f'test.npz')
+test_data=DataLoader(test_data,batch_size=1,shuffle=False)
+
+
+with torch.no_grad():
+    for sequence in tqdm(test_data):
+        input, target = sequence
+        input=input.to('cuda:0')
+        target=target.to('cuda:0')
+        output = downstream_ProtT5_XL(input)
+        output = torch.softmax(output, dim=1)
+        entropy = -torch.sum(output * torch.log2(output))
+        print(f'cluster:{torch.argmax(output, dim=1).item() + 1},entropy:{entropy}')
+```
+
+# Visualization of GH29 representations by UMAP
+
+## Visualization of GH29 representations with GH29BERT pre-training model
+
+```python
+label=read_fasta('../data/Pretrain/pretrain.fasta')
+data=numpy.load('data.npz')
+data=data['d']
+cl=numpy.load('cl.npz')
+cl=cl['c']
+
+
+df=pandas.read_csv('main_t-SNE_color.csv')
+
+reducer = UMAP(n_neighbors=15, min_dist=0.1, n_components=2)
+data_tsne = reducer.fit_transform(data)
+
+i=0
+for x,y in tqdm(data_tsne):
+    df.loc[df['name'] == label[i], 'x'] = x
+    df.loc[df['name'] == label[i], 'y'] = y
+    df.loc[df['name'] == label[i], 'cluster'] = cl[i]
+    i+=1
+
+df.to_csv('main_bert_umap.csv')
+```
+
+## Visualization of GH29 representations with ProtT5-XL pre-training model
+
+```python
+label=read_fasta('../data/Pretrain/pretrain.fasta')
+data=numpy.load('data.npz')
+data=data['d']
+cl=numpy.load('cl.npz')
+cl=cl['c']
+
+
+df=pandas.read_csv('main_t-SNE_color.csv')
+reducer = UMAP(n_neighbors=15, min_dist=0.1, n_components=2)
+
+data_tsne = reducer.fit_transform(data)
+
+i=0
+for x,y in tqdm(data_tsne):
+    df.loc[df['name'] == label[i], 'x'] = x
+    df.loc[df['name'] == label[i], 'y'] = y
+    df.loc[df['name'] == label[i], 'cluster'] = cl[i]
+    i+=1
+
+df.to_csv('main_bert_umap.csv')
+```
+
+
+
+---
+
 ## Pretraining
 
 run:
@@ -23,8 +300,6 @@ python Pretrain/transformer/transformer_train.py
 to pretrain the bert-based model
 
 ---
-
-
 
 ## Task-training
 
@@ -46,8 +321,6 @@ to train the classify-task model
 
 ---
 
-
-
 ## Prediction
 
 run:
@@ -59,8 +332,6 @@ python test.py
 to preditiction your own fasta data
 
 ---
-
-
 
 ## visualization
 
@@ -80,13 +351,7 @@ python figure1.py figure2.py
 
 to get the visualization map
 
-
-
-
-
 ---
-
-
 
 ## Prerequisites for environment preparation
 
