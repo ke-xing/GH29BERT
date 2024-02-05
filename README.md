@@ -26,7 +26,7 @@ Due to the limit of single file size of GitHub repository, we upload the model p
 	downstream_GH29BERT=torch.load('down_model_500_kfpt').to('cuda:0')
 	```
 - ProtT5-XL
-
+	
 	Reproducing prediction testing based on pre-trained ProtT5-XL requires installing extra dependency libraries:
 	  ```
 	  pip install torch
